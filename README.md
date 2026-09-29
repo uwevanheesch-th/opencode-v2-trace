@@ -19,49 +19,22 @@ So sieht der eingebettete Viewer aus: https://ljw1004.github.io/opencode-trace/e
 
 ---
 
-## Installation (einfachster Weg)
+## Installation
 
-Das Plugin wird als **lokaler Ordner** in die OpenCode-Config eingetragen. Es ist
-**kein `npm install` nötig**, um es zu benutzen.
-
-### 1. Repo klonen und auf den freigegebenen Tag wechseln
+Ein einziger Befehl installiert das Plugin am festen Tag `v1.0` und trägt es in die
+globale Config ein. **Kein Klonen und kein `npm install` nötig.**
 
 ```bash
-git clone https://github.com/uwevanheesch-th/opencode-v2-trace.git
-cd opencode-v2-trace
-git checkout v1.0
+opencode plugin add "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.0"
 ```
 
-### 2. Absoluten Pfad zum Klon ermitteln
+Der Teil hinter `#` ist der Git-Ref – hier der Tag `v1.0`. Für ein späteres Update
+verwendest du den jeweils angekündigten Tag (z. B. `#v1.1`).
 
-```bash
-pwd
-```
-
-Merke dir die Ausgabe, z. B. `/Users/deinname/opencode-v2-trace`.
-
-### 3. Plugin in `~/.config/opencode/opencode.json` eintragen
-
-Lege die Datei an, falls sie nicht existiert, und trage **deinen** Pfad aus Schritt 2 ein:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": ["/DEIN/PFAD/opencode-v2-trace"]
-}
-```
-
-Wer bereits eine `opencode.json` hat: einfach den `"plugins"`-Eintrag ergänzen.
-
-### 4. OpenCode-Dienst neu laden
+Danach neu laden und prüfen:
 
 ```bash
 opencode service restart
-```
-
-### 5. Prüfen, dass das Plugin geladen ist
-
-```bash
 opencode plugin list     # muss "ljw1004.opencode-trace" anzeigen
 ```
 
@@ -82,13 +55,12 @@ Der interaktive Viewer ist in jede HTML-Datei eingebettet.
 
 ## Updates
 
-Aktualisierungen des Plugins werden über einen **neuen Tag** bereitgestellt und
-euch explizit angekündigt. Um auf einen neuen Stand zu wechseln:
+Aktualisierungen werden über einen **neuen Tag** bereitgestellt und euch explizit
+angekündigt. Um zu wechseln, den alten Eintrag entfernen und den neuen Tag hinzufügen:
 
 ```bash
-cd opencode-v2-trace
-git fetch --tags
-git checkout v1.1        # den jeweils angekündigten Tag verwenden
+opencode plugin remove "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.0"
+opencode plugin add    "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.1"
 opencode service restart
 ```
 
@@ -124,9 +96,6 @@ opencode plugin list
 
 - **Kein `npm install` nötig**, um das Plugin zu benutzen. `npm install` brauchst du nur
   zum Entwickeln (`npm run typecheck`, `npm run lint`).
-- Behalte den **ganzen Ordner** – besonders `viewer.js` neben `index.ts`. Fehlt `viewer.js`,
-  schreibt das Plugin **stillschweigend nichts**.
-- Der Pfad in der Config ist **pro Rechner** unterschiedlich; jede*r trägt den eigenen ein.
 - Die Trace-Dateien in `~/opencode-trace` enthalten die **vollständigen, ungefilterten**
   Prompts und Antworten im Klartext. Teile sie nicht unbedacht.
 
