@@ -1,5 +1,5 @@
 {
-  "name": "@ljw1004/opencode-trace",
+  "name": "opencode-v2-trace",
   "version": "0.2.0",
   "description": "OpenCode v2 plugin that saves raw json LLM request+responses as jsonl in ~/opencode-trace, with built-in HTML interactive viewer",
   "license": "MIT",
@@ -14,11 +14,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Heaven-Rajan/ASE-Plugin-Fix.git"
+    "url": "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git"
   },
-  "homepage": "https://github.com/Heaven-Rajan/ASE-Plugin-Fix#readme",
+  "homepage": "https://github.com/uwevanheesch-th/opencode-v2-trace#readme",
   "bugs": {
-    "url": "https://github.com/Heaven-Rajan/ASE-Plugin-Fix/issues"
+    "url": "https://github.com/uwevanheesch-th/opencode-v2-trace/issues"
   },
   "keywords": [
     "opencode",
