@@ -1,7 +1,7 @@
 {
   "name": "@ljw1004/opencode-trace",
-  "version": "0.1.4",
-  "description": "OpenCode plugin that saves raw json LLM request+responses as jsonl in ~/opencode-trace, with built-in HTML interactive viewer",
+  "version": "0.2.0",
+  "description": "OpenCode v2 plugin that saves raw json LLM request+responses as jsonl in ~/opencode-trace, with built-in HTML interactive viewer",
   "license": "MIT",
   "type": "module",
   "exports": "./index.ts",
@@ -14,11 +14,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ljw1004/opencode-trace.git"
+    "url": "git+https://github.com/Heaven-Rajan/ASE-Plugin-Fix.git"
   },
-  "homepage": "https://github.com/ljw1004/opencode-trace#readme",
+  "homepage": "https://github.com/Heaven-Rajan/ASE-Plugin-Fix#readme",
   "bugs": {
-    "url": "https://github.com/ljw1004/opencode-trace/issues"
+    "url": "https://github.com/Heaven-Rajan/ASE-Plugin-Fix/issues"
   },
   "keywords": [
     "opencode",
@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.24.0",
+    "@opencode/plugin": "2.0.19",
     "@tsconfig/node22": "22.0.2",
     "@types/node": "22.13.9",
     "eslint": "^9.39.4",

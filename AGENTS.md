@@ -1,7 +1,9 @@
 # opencode-trace
 
 This is a plugin designed to capture the raw json requests sent to the LLM, and the raw responses back (after streaming-delta consolidation). It saves them into ~/opencode-trace
-- End users should install it as an npm plugin via `"plugin": ["@ljw1004/opencode-trace"]` in `~/.config/opencode/opencode.json`.
-- For development: `npm install` once, and change the plugin line to `["/path/to/opencode-trace/index.ts"]`. Then each time you edit, `npm run typecheck` and `npm run lint` and then exercise it `opencode run --dangerously-skip-permissions "why is the sky blue?"`. (It's using the existing opencode configuration to pick up your already-configured auth).
+
+Targets **OpenCode v2** (v2.0.x+). It registers OpenCode's `session.hook("http.request" | "http.response", …)` hooks (see `@opencode/plugin`, imported for types only), so no `globalThis.fetch` patching is needed. The default export is a `{ id, setup }` plugin object — the shape `Plugin.define()` returns. v1 plugins do not run under v2.
+- End users should install it as an npm plugin via `"plugins": ["@ljw1004/opencode-trace"]` in `~/.config/opencode/opencode.json` (v2 renamed `plugin` → `plugins`).
+- For development: `npm install` once (this also installs the `@opencode/plugin` types used by the typecheck). Point OpenCode at your checkout with `"plugins": ["/path/to/opencode-trace"]` — a **directory**, not `index.ts`; OpenCode resolves the package entry from `package.json`. Then each time you edit, `npm run typecheck` and `npm run lint` and then exercise it: `opencode run --auto "why is the sky blue?"` (it uses your already-configured OpenCode auth). Alternatively, drop a one-line `export { default } from "/abs/path/to/opencode-trace/index.ts"` file into a project's `.opencode/plugin/` to load your checkout without any install step.
 - For iterating on the viewer, you can copy `viewer.js` into your ~/opencode-trace directory, or copy examples into this directory, and they'll preferentially pick up `viewer.js` over their embedded viewer code.
 - To deploy, `npm version patch`, `npm login`, `npm publish --dry-run`, `npm publish`. Verify with `npm view "@ljw1004/opencode-trace"`, then test it by installing as above.
