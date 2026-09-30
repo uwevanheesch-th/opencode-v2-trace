@@ -53,6 +53,52 @@ Der interaktive Viewer ist in jede HTML-Datei eingebettet.
 
 ---
 
+## Konfiguration
+
+Das Plugin wird über **Umgebungsvariablen** gesteuert – es sind keine zusätzlichen
+Setup-Schritte oder Config-Dateien nötig. Ohne gesetzte Variablen greifen die Standardwerte.
+
+### `OPENCODE_TRACE_FULL` – Voll- vs. Delta-Modus
+
+Bei jedem Turn schickt OpenCode den **kompletten** Kontext erneut an das LLM: System-Prompt,
+alle Tool-Definitionen und den gesamten bisherigen Gesprächsverlauf. Damit das aus didaktischen
+Gründen sichtbar ist, protokolliert das Plugin standardmäßig **jeden Request vollständig**.
+
+| Wert                    | Verhalten                                                                 |
+| ----------------------- | ------------------------------------------------------------------------- |
+| *(nicht gesetzt)*       | **Vollmodus** (Standard): jeder Request wird komplett und ungefaltet geloggt |
+| `OPENCODE_TRACE_FULL=0` | **Delta-Modus**: nur die Änderungen gegenüber dem vorherigen Request werden geloggt (kompaktere Dateien) |
+
+Im Vollmodus gliedert der Viewer jeden Request zusätzlich in die Abschnitte
+**System-Prompt**, **Tools** und **Verlauf**, sodass die Bestandteile eines LLM-Requests
+klar erkennbar sind.
+
+> Hinweis: Im Vollmodus wachsen die Trace-Dateien deutlich schneller, da sich der Kontext
+> pro Turn wiederholt. Deshalb greift standardmäßig das Größenlimit (siehe unten).
+
+### `OPENCODE_TRACE_MAX_MB` – Maximale Dateigröße
+
+Begrenzt die Größe einer einzelnen Trace-Datei.
+
+| Wert                       | Verhalten                                                      |
+| -------------------------- | -------------------------------------------------------------- |
+| *(nicht gesetzt)*          | **5 MB** (Standard)                                            |
+| `OPENCODE_TRACE_MAX_MB=10` | Limit in MB (auch Dezimalwerte wie `2.5` möglich)             |
+| `OPENCODE_TRACE_MAX_MB=-1` | **kein Limit**                                                |
+| ungültiger Wert            | Rückfall auf den Standard von 5 MB (verhindert versehentlich riesige Dateien) |
+
+Wird das Limit erreicht, schreibt das Plugin die **aktuelle Zeile noch vollständig** (der letzte
+Turn bleibt intakt), hängt dann einen sichtbaren **Hinweis unten in der Datei** an und stoppt das
+weitere Logging für diese Session.
+
+Beispiel – Delta-Modus mit 20-MB-Limit:
+
+```bash
+OPENCODE_TRACE_FULL=0 OPENCODE_TRACE_MAX_MB=20 opencode run --auto "why is the sky blue?"
+```
+
+---
+
 ## Updates
 
 Aktualisierungen werden über einen **neuen Tag** bereitgestellt und euch explizit
@@ -94,8 +140,6 @@ opencode plugin list
 
 ## Hinweise
 
-- **Kein `npm install` nötig**, um das Plugin zu benutzen. `npm install` brauchst du nur
-  zum Entwickeln (`npm run typecheck`, `npm run lint`).
 - Die Trace-Dateien in `~/opencode-trace` enthalten die **vollständigen, ungefilterten**
   Prompts und Antworten im Klartext. Teile sie nicht unbedacht.
 

@@ -68,12 +68,7 @@ function contentText(contents) {
   for (const c of contents ?? []) {
     const type = c && typeof c === 'object' ? deltaField(c, 'type') : undefined;
     const text = c && typeof c === 'object' ? deltaField(c, 'text') : c;
-    if (type === 'input_text') {
-      const raw = String(text ?? '');
-      const divider = '## My request for Codex:';
-      const i = raw.indexOf(divider);
-      r.push(i < 0 ? raw : raw.slice(i + divider.length).replace(/^\s+/, ''));
-    } else if (type === 'output_text' || type === 'text') {
+    if (type === 'input_text' || type === 'output_text' || type === 'text') {
       r.push(String(text ?? ''));
     } else r.push(`[${String(type ?? '?')}]`);
   }
@@ -192,6 +187,92 @@ function renderPayload(elements) {
 }
 
 /**
+ * Splits an LLM request body into didactic sections so students can see the anatomy of what the agent
+ * sends on every single turn: the system prompt, the tool/function definitions, and the full message
+ * history. This is purely structural — derived from a single request, with no cross-request diffing —
+ * so it stays truthful even in full mode. Sections that are absent are simply omitted.
+ *
+ * Returns an array of renderable nodes, or null if the body has no recognizable structure.
+ */
+function requestSections(data) {
+  const sections = [];
+
+  // History list (prior + current messages), re-sent in full on every turn.
+  const history = deltaField(data, 'input') ?? deltaField(data, 'messages');
+
+  // System prompt. Providers expose it in different places:
+  //  - OpenAI /responses: top-level `instructions` (string)
+  //  - Some providers: top-level `system` (string or array of blocks)
+  //  - Chat-completions style (what OpenCode commonly uses): the leading role:"system" message(s)
+  //    inside the history. We surface those as their own section and drop them from the history view.
+  const instructions = deltaField(data, 'instructions');
+  const system = deltaField(data, 'system');
+  let sys = instructions ?? system;
+  let historyRest = history;
+  if ((sys === undefined || sys === null) && Array.isArray(history)) {
+    const systemMsgs = [];
+    let i = 0;
+    while (i < history.length) {
+      const m = history[i];
+      if (m && typeof m === 'object' && deltaField(m, 'role') === 'system') {
+        const c = deltaField(m, 'content');
+        systemMsgs.push(typeof c === 'string' ? c : contentText(c));
+        i++;
+      } else {
+        break;
+      }
+    }
+    if (systemMsgs.length > 0) {
+      sys = systemMsgs.join('\n\n');
+      historyRest = history.slice(i);
+    }
+  }
+  if (sys !== undefined && sys !== null) {
+    const text = typeof sys === 'string' ? sys : contentText(sys);
+    sections.push({
+      [TITLE]: '<b>System-Prompt</b>: ',
+      [INLINE]: esc(short(text)),
+      body: text,
+    });
+  }
+
+  // Tools: the function/tool definitions re-sent on every turn.
+  const tools = deltaField(data, 'tools');
+  if (Array.isArray(tools)) {
+    const names = tools
+      .map(t => {
+        if (t && typeof t === 'object') {
+          const fn = deltaField(t, 'function');
+          return deltaField(t, 'name') ?? (fn && deltaField(fn, 'name'));
+        }
+        return undefined;
+      })
+      .filter(Boolean);
+    sections.push({
+      [TITLE]: `<b>Tools</b> (${tools.length}): `,
+      [INLINE]: esc(short(names.join(', '))),
+      body: tools,
+    });
+  }
+
+  // History: the full list of prior + current messages (minus any system prefix shown above).
+  if (Array.isArray(historyRest)) {
+    sections.push({
+      [TITLE]: `<b>Verlauf</b> (${historyRest.length}): `,
+      [INLINE]: esc('wird bei jedem Turn vollständig erneut gesendet'),
+      body: renderPayload(historyRest),
+      open: true,
+    });
+  } else {
+    // Fall back to whatever payload we can find (e.g. a bare prompt).
+    const payload = renderPayload(historyRest);
+    if (payload.length > 0) sections.push(...payload);
+  }
+
+  return sections.length > 0 ? sections : null;
+}
+
+/**
  * Renders a node in the tree.
  * If it looks like a REQUEST or RESPONSE payload (has ._kind property) then pretty-prints it.
  * The goal of this pretty-printing is not to be 100% faithful; instead it's solely to surface
@@ -203,13 +284,12 @@ function render(data, label) {
   const purpose = data?._purpose ? ` ${esc(String(data._purpose))}` : '';
   const isPrimary =
     data?._purpose === undefined ||
-    data?._purpose === '' ||
-    data?._purpose === '[turn]' ||
-    data?._purpose === '[/responses]';
+    data?._purpose === '';
   if (data?.[TITLE] !== undefined) {
     return data;
   } else if (data?._kind === 'request') {
-    const rendered = renderPayload(deltaField(data, 'input') ?? deltaField(data, 'messages'));
+    const sections = requestSections(data);
+    const rendered = sections ?? renderPayload(deltaField(data, 'input') ?? deltaField(data, 'messages'));
     const raw = {...data};
     delete raw._kind;
     const title = `REQUEST${id}${purpose}`;
@@ -229,6 +309,14 @@ function render(data, label) {
       [TITLE]: `[${esc(ts(data))}] ${isPrimary ? `<b>${title}</b>` : title} `,
       body: [...payload, {[TITLE]: 'raw', body: raw}],
       open: isPrimary,
+    };
+  } else if (data?._kind === 'limit') {
+    const raw = {...data};
+    return {
+      [TITLE]: `[${esc(ts(data))}] <b style="color:#b00;">⚠ LIMIT</b> `,
+      [INLINE]: esc(short(data._error)),
+      body: [data._error ?? '???', {[TITLE]: 'raw', body: raw}],
+      open: true,
     };
   } else if (data?._kind === 'error') {
     const raw = {...data};

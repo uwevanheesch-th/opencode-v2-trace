@@ -9,7 +9,7 @@
  * preferring a sibling `viewer.js` if one exists next to the saved html file.
  */
 import type { Plugin } from "@opencode/plugin"
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs"
 import { createHash } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
@@ -41,6 +41,33 @@ const PREAMBLE = `<!DOCTYPE html>
 </html>
 ${"<!" + "--"}
 `
+
+/**
+ * Config: whether to log full, uncompressed request/response bodies (default) or delta-compressed ones.
+ * Controlled by `OPENCODE_TRACE_FULL`. Any value other than "0" means full mode (the didactic default),
+ * so students can see the entire context — system prompt, tools, and whole history — that the agent
+ * re-sends to the LLM on every single turn. `OPENCODE_TRACE_FULL=0` restores the compact delta view.
+ */
+const FULL_MODE = process.env.OPENCODE_TRACE_FULL !== "0"
+
+/**
+ * Config: maximum size of a single trace html file, in megabytes. Controlled by `OPENCODE_TRACE_MAX_MB`.
+ * Default is 5 MB. A value of -1 disables the limit entirely. An invalid/unparseable value falls back to
+ * the 5 MB default (rather than unbounded) so a typo can't silently produce huge files. When a file reaches
+ * the limit, the current row is still written, a final "[limit]" notice row is appended, and no further
+ * rows are written for that session.
+ */
+const MAX_BYTES = ((): number => {
+  const raw = process.env.OPENCODE_TRACE_MAX_MB
+  if (raw === undefined || raw.trim() === "") return 5 * 1024 * 1024
+  const mb = Number(raw)
+  if (!Number.isFinite(mb)) return 5 * 1024 * 1024
+  if (mb < 0) return Infinity
+  return mb * 1024 * 1024
+})()
+
+/** Mutable global state: session ids whose logfile has hit the size limit; no further rows are written. */
+const capped = new Set<string>()
 
 /** Mutable global state: maps OpenCode session ids to the html logfile path for that session. */
 const files = new Map<string, string>()
@@ -104,9 +131,14 @@ function extractPromptFromRequestBody(v: Record<string, unknown>): string | unde
  * In the vanishingly rare case of filename collision (because a user asked two different sessions
  * the same prompt at the exact same second) then there'll be a clash, and that's the user's fault:
  * we tradeoff theoretical perfection for user convenience in the common case.
+ *
+ * Honors the `OPENCODE_TRACE_MAX_MB` size cap: the row that pushes the file to/over the limit is still
+ * written in full, then a single `_kind:"limit"` notice row is appended and the session is marked capped
+ * so no further rows are written. The viewer renders that notice as a banner at the bottom of the file.
  */
 function writeNoThrow(id: string, name: string, row: Record<string, unknown>): void {
   try {
+    if (capped.has(id)) return
     const prev = files.get(id)
     const d = new Date()
     const file = prev ?? path.join(
@@ -125,7 +157,22 @@ function writeNoThrow(id: string, name: string, row: Record<string, unknown>): v
       )
     }
     files.set(id, file)
+    // Check the real on-disk size (preamble + embedded viewer + all rows so far) before appending.
+    // If we're already at/over the limit, still write this row (so the last turn stays intact), then
+    // append a one-time limit notice and stop logging this session.
+    const atLimit = MAX_BYTES !== Infinity && existsSync(file) && statSync(file).size >= MAX_BYTES
     appendFileSync(file, `${JSON.stringify(row).replace(/-->/g, "--\\u003e")}\n`)
+    if (atLimit) {
+      capped.add(id)
+      const mb = MAX_BYTES / (1024 * 1024)
+      const notice = {
+        _kind: "limit",
+        _ts: now(),
+        _limit_mb: mb,
+        _error: `Trace file reached the ${mb} MB size limit — logging stopped for this session. Set OPENCODE_TRACE_MAX_MB=-1 (or a higher value) to capture more.`,
+      }
+      appendFileSync(file, `${JSON.stringify(notice).replace(/-->/g, "--\\u003e")}\n`)
+    }
   } catch {
     // Intentionally swallow tracing I/O failures so plugin logging can't crash OpenCode.
   }
@@ -590,7 +637,9 @@ async function handleRequest(request: Request, session: string, kind: string): P
   pending.set(request, { seq, purpose, name })
   const common = { _id: seq, _purpose: purpose, _url: request.url }
   const requestKey = `${session}\n${request.method}\n${request.url}\nrequest\n${purpose}`
-  const [requestRow] = delta(prevs.get(requestKey), raw as object)
+  // Full mode (default): log the complete body every time, so the whole re-sent context is visible.
+  // Delta mode (OPENCODE_TRACE_FULL=0): log only what changed versus the previous request of this session.
+  const requestRow = FULL_MODE ? raw : delta(prevs.get(requestKey), raw as object)[0]
   prevs.set(requestKey, raw as object)
   writeNoThrow(session, name, {
     ...(requestRow as Record<string, unknown>),
@@ -628,7 +677,7 @@ function handleResponse(request: Request, response: Response, session: string, k
         ? { ...json, _status: status, _status_text: statusText, _error: detail }
         : json) as object
       const responseKey = `${session}\n${method}\n${url}\nresponse\n${purpose}`
-      const [responseRow] = delta(prevs.get(responseKey), responseNext)
+      const responseRow = FULL_MODE ? responseNext : delta(prevs.get(responseKey), responseNext)[0]
       prevs.set(responseKey, responseNext)
       writeNoThrow(session, name, {
         ...(responseRow as Record<string, unknown>),
