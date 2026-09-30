@@ -3,8 +3,10 @@
 Zeichnet die rohen JSON-Requests an das LLM und dessen Antworten auf und speichert sie
 als interaktive HTML-Dateien in `~/opencode-trace`.
 
-Fork von [ljw1004/opencode-trace](https://github.com/ljw1004/opencode-trace),
-aktualisiert für **OpenCode v2** (nutzt die v2-Session-Hooks statt `globalThis.fetch` zu patchen).
+Fork von [ljw1004/opencode-trace](https://github.com/ljw1004/opencode-trace)
+(ursprüngliches Repo), aktualisiert für **OpenCode v2** auf Basis der v2-Migration
+[Heaven-Rajan/ASE-Plugin-Fix](https://github.com/Heaven-Rajan/ASE-Plugin-Fix)
+(nutzt die v2-Session-Hooks statt `globalThis.fetch` zu patchen).
 So sieht der eingebettete Viewer aus: https://ljw1004.github.io/opencode-trace/example.html
 
 ---
@@ -35,7 +37,7 @@ Danach neu laden und prüfen:
 
 ```bash
 opencode service restart
-opencode plugin list     # muss "ljw1004.opencode-trace" anzeigen
+opencode plugin list     # muss "uwevanheesch-th.opencode-trace" anzeigen
 ```
 
 ---
@@ -155,6 +157,14 @@ OpenCode v2 führt v1-Plugins nicht mehr aus. Dieses Plugin nutzt die v2-Session
 
 ## Lizenz & Herkunft
 
-MIT (siehe [LICENSE](./LICENSE)). Ursprüngliches Projekt:
-[ljw1004/opencode-trace](https://github.com/ljw1004/opencode-trace).
-v2-Migration basierend auf [Heaven-Rajan/ASE-Plugin-Fix](https://github.com/Heaven-Rajan/ASE-Plugin-Fix).
+MIT (siehe [LICENSE](./LICENSE)).
+
+Dieser Fork beruht auf der folgenden Herkunftskette:
+
+1. **Ursprüngliches Repo:** [ljw1004/opencode-trace](https://github.com/ljw1004/opencode-trace)
+   – das Original-Plugin (für OpenCode v1, patchte `globalThis.fetch`).
+2. **v2-Migration:** [Heaven-Rajan/ASE-Plugin-Fix](https://github.com/Heaven-Rajan/ASE-Plugin-Fix)
+   – portierte das Plugin auf die OpenCode-v2-Session-Hooks. Auf diesem Fork beruht der v2-Code.
+3. **Dieser Fork:** [uwevanheesch-th/opencode-v2-trace](https://github.com/uwevanheesch-th/opencode-v2-trace)
+   – didaktische Variante (Vollmodus als Standard, Dateigrößen-Limit, nach System/Tools/Verlauf
+   gegliederter Viewer). Wird per Git-Tag installiert, nicht über npm.

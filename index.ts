@@ -724,7 +724,7 @@ function handleRetry(session: string, retry: boolean, error: unknown): void {
  * for types only — keeping this plugin free of any runtime dependency, exactly as the v1 version was.
  */
 const plugin: Plugin.Plugin = {
-  id: "ljw1004.opencode-trace",
+  id: "uwevanheesch-th.opencode-trace",
   async setup(ctx) {
     const registrations = await Promise.all([
       ctx.session.hook("http.request", (event) =>
