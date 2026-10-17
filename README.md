@@ -1,7 +1,8 @@
 # opencode-v2-trace
 
 Zeichnet die rohen JSON-Requests an das LLM und dessen Antworten auf und speichert sie
-als interaktive HTML-Dateien in `~/opencode-trace`.
+als interaktive HTML-Dateien in `~/opencode-trace`. Jeder Request/jede Antwort ist dem
+jeweiligen **Agent** zugeordnet, und **Agent-Wechsel** werden eigens markiert.
 
 Fork von [ljw1004/opencode-trace](https://github.com/ljw1004/opencode-trace)
 (ursprüngliches Repo), aktualisiert für **OpenCode v2** auf Basis der v2-Migration
@@ -16,6 +17,7 @@ So sieht der eingebettete Viewer aus: https://ljw1004.github.io/opencode-trace/e
 | Plugin-Tag | Getestet mit OpenCode |
 | ---------- | --------------------- |
 | `v1.0`     | `2.0.19`              |
+| `v2`       | `2.0.19`              |
 
 > Prüfe deine OpenCode-Version mit `opencode --version` (muss **2.x** sein).
 
@@ -23,15 +25,15 @@ So sieht der eingebettete Viewer aus: https://ljw1004.github.io/opencode-trace/e
 
 ## Installation
 
-Ein einziger Befehl installiert das Plugin am festen Tag `v1.0` und trägt es in die
+Ein einziger Befehl installiert das Plugin am festen Tag `v2` und trägt es in die
 globale Config ein. **Kein Klonen und kein `npm install` nötig.**
 
 ```bash
-opencode plugin add "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.0"
+opencode plugin add "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v2"
 ```
 
-Der Teil hinter `#` ist der Git-Ref – hier der Tag `v1.0`. Für ein späteres Update
-verwendest du den jeweils angekündigten Tag (z. B. `#v1.1`).
+Der Teil hinter `#` ist der Git-Ref – hier der Tag `v2`. Für ein späteres Update
+verwendest du den jeweils angekündigten Tag (z. B. `#v2.1`).
 
 Danach neu laden und prüfen:
 
@@ -108,7 +110,7 @@ angekündigt. Um zu wechseln, den alten Eintrag entfernen und den neuen Tag hinz
 
 ```bash
 opencode plugin remove "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.0"
-opencode plugin add    "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.1"
+opencode plugin add    "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v2"
 opencode service restart
 ```
 
@@ -149,9 +151,21 @@ opencode plugin list
 
 ## Was ist anders als in v1
 
-OpenCode v2 führt v1-Plugins nicht mehr aus. Dieses Plugin nutzt die v2-Session-Hooks
-`http.request` / `http.response` (statt `globalThis.fetch` zu patchen) und exportiert ein
-`{ id, setup }`-Plugin-Objekt.
+OpenCode v2 führt v1-Plugins nicht mehr aus. Dieses Plugin nutzt die v2-Session-Hooks statt
+`globalThis.fetch` zu patchen und exportiert ein `{ id, setup }`-Plugin-Objekt.
+
+Es erfasst **zwei Transportwege**, weil der eigentliche Agent-Loop je nach Modell/Provider nicht
+über HTTP läuft:
+
+- `http.request` / `http.response` – für Provider, die über HTTP sprechen (und für kurze
+  Hilfs-Calls wie die Titel-Generierung).
+- `experimental.ws.send` / `experimental.ws.receive` – für Provider, die den Haupt-Turn über
+  **WebSocket** fahren. Der gesendete Frame ist der Prompt, die gestreamten Antwort-Frames werden
+  zu einer Antwort zusammengeführt. Die Zusammenführung ist **format-unabhängig** (OpenAI
+  `/responses`, OpenAI chat-completions, Anthropic werden anhand der Frame-Form erkannt).
+
+Ein reines HTTP-Plugin würde bei WebSocket-Providern **nur die Titel-Generierung** sehen und den
+eigentlichen Agent-Turn verpassen.
 
 ---
 
@@ -167,4 +181,5 @@ Dieser Fork beruht auf der folgenden Herkunftskette:
    – portierte das Plugin auf die OpenCode-v2-Session-Hooks. Auf diesem Fork beruht der v2-Code.
 3. **Dieser Fork:** [uwevanheesch-th/opencode-v2-trace](https://github.com/uwevanheesch-th/opencode-v2-trace)
    – didaktische Variante (Vollmodus als Standard, Dateigrößen-Limit, nach System/Tools/Verlauf
-   gegliederter Viewer). Wird per Git-Tag installiert, nicht über npm.
+   gegliederter Viewer, Erfassung des WebSocket-Transports sowie Agent-Zuordnung und
+   Agent-Wechsel-Markierung). Wird per Git-Tag installiert, nicht über npm.
