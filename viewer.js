@@ -282,6 +282,7 @@ function requestSections(data) {
 function render(data, label) {
   const id = data?._id !== undefined ? ` #${esc(String(data._id))}` : '';
   const purpose = data?._purpose ? ` ${esc(String(data._purpose))}` : '';
+  const agent = data?._agent ? ` <span style="color:#06c;">[agent: ${esc(String(data._agent))}]</span>` : '';
   const isPrimary =
     data?._purpose === undefined ||
     data?._purpose === '';
@@ -294,7 +295,7 @@ function render(data, label) {
     delete raw._kind;
     const title = `REQUEST${id}${purpose}`;
     return {
-      [TITLE]: `[${esc(ts(data))}] ${isPrimary ? `<b>${title}</b>` : title} `,
+      [TITLE]: `[${esc(ts(data))}] ${isPrimary ? `<b>${title}</b>` : title}${agent} `,
       body: [...rendered, {[TITLE]: 'raw', body: raw}],
       open: isPrimary,
     };
@@ -306,9 +307,17 @@ function render(data, label) {
     delete raw._kind;
     const title = `RESPONSE${id}${purpose}`;
     return {
-      [TITLE]: `[${esc(ts(data))}] ${isPrimary ? `<b>${title}</b>` : title} `,
+      [TITLE]: `[${esc(ts(data))}] ${isPrimary ? `<b>${title}</b>` : title}${agent} `,
       body: [...payload, {[TITLE]: 'raw', body: raw}],
       open: isPrimary,
+    };
+  } else if (data?._kind === 'agent-switch') {
+    const raw = {...data};
+    return {
+      [TITLE]: `[${esc(ts(data))}] <b style="color:#06c;">⇄ AGENT</b> `,
+      [INLINE]: esc(`${short(data._from ?? '?')} → ${short(data._to ?? '?')}`),
+      body: [`${data._from ?? '?'} → ${data._to ?? '?'}`, {[TITLE]: 'raw', body: raw}],
+      open: true,
     };
   } else if (data?._kind === 'limit') {
     const raw = {...data};

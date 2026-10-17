@@ -23,8 +23,10 @@ Introduce an `OPENCODE_TRACE_FULL` environment variable.
   response body is logged complete and uncompressed.
 - `OPENCODE_TRACE_FULL=0` restores the previous delta behavior.
 
-In `handleRequest` / `handleResponse`, the `delta(...)` call is skipped in full mode and the
-raw parsed body is logged instead.
+At each point where a request or response body is logged, the `delta(...)` call is skipped in full
+mode and the raw parsed body is logged instead. This applies uniformly to the HTTP handlers
+(`handleRequest` / `handleResponse`) and the WebSocket handlers (`handleWsSend` / `handleWsReceive`,
+see ADR 0004).
 
 ## Alternatives considered
 

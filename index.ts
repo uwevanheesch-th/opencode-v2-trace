@@ -78,6 +78,9 @@ const prevs = new Map<string, object>()
 /** Mutable global state: maps OpenCode session ids to the next per-session request sequence number. */
 const ids = new Map<string, number>()
 
+/** Mutable global state: maps OpenCode session ids to the agent name seen on that session's most recent request. */
+const agents = new Map<string, string>()
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v)
 }
@@ -624,18 +627,45 @@ function deriveName(title: string | undefined, session: string): string {
  * Keyed by the `Request` object, whose identity OpenCode preserves across both hooks, so a response is
  * paired with its request (via `_id`) even when several requests of a session are in flight at once.
  */
-const pending = new WeakMap<Request, { seq: number; purpose: string; name: string }>()
+const pending = new WeakMap<Request, { seq: number; purpose: string; name: string; agent: string }>()
+
+/**
+ * Detects and logs an agent switch for a session. OpenCode does not expose a dedicated hook here, but
+ * every request carries the `agent` making the call, so a change between consecutive primary requests of
+ * the same session is an agent switch (e.g. the user flips `plan` -> `build`, or a sub-agent task runs
+ * under a different agent). Logs a one-line `_kind:"agent-switch"` row the first time a new agent appears.
+ *
+ * Auxiliary `[meta]` calls (title/compaction/generate) are ignored: they run under their own internal
+ * agent (e.g. `title`) and would otherwise masquerade as a user-visible switch. Only primary turns
+ * (purpose === "") participate in switch detection.
+ */
+function noteAgent(session: string, agent: string, name: string, purpose: string): void {
+  if (purpose !== "") return
+  const prev = agents.get(session)
+  if (prev === agent) return
+  agents.set(session, agent)
+  if (prev !== undefined) {
+    writeNoThrow(session, name, {
+      _kind: "agent-switch",
+      _ts: now(),
+      _agent: agent,
+      _from: prev,
+      _to: agent,
+    })
+  }
+}
 
 /** Handles an outgoing LLM request: logs its (delta-compressed) body and records state for the response. */
-async function handleRequest(request: Request, session: string, kind: string): Promise<void> {
+async function handleRequest(request: Request, session: string, kind: string, agent: string): Promise<void> {
   const text = await request.clone().text().catch(() => "")
   const raw = parseBody(text)
   const title = typeof raw._body !== "string" ? extractPromptFromRequestBody(raw) : undefined
   const purpose = purposeOf(kind)
   const seq = nextSeq(session)
   const name = deriveName(title, session)
-  pending.set(request, { seq, purpose, name })
-  const common = { _id: seq, _purpose: purpose, _url: request.url }
+  noteAgent(session, agent, name, purpose)
+  pending.set(request, { seq, purpose, name, agent })
+  const common = { _id: seq, _purpose: purpose, _url: request.url, _agent: agent }
   const requestKey = `${session}\n${request.method}\n${request.url}\nrequest\n${purpose}`
   // Full mode (default): log the complete body every time, so the whole re-sent context is visible.
   // Delta mode (OPENCODE_TRACE_FULL=0): log only what changed versus the previous request of this session.
@@ -650,19 +680,20 @@ async function handleRequest(request: Request, session: string, kind: string): P
 }
 
 /** Handles an LLM response: consolidates any SSE stream and logs its (delta-compressed) body in the background. */
-function handleResponse(request: Request, response: Response, session: string, kind: string): void {
+function handleResponse(request: Request, response: Response, session: string, kind: string, agent: string): void {
   // Clone synchronously, before the hook returns, so the body is still unconsumed when we tee it off.
   const clone = response.clone()
   const st = pending.get(request)
   const seq = st?.seq ?? nextSeq(session)
   const purpose = st?.purpose ?? purposeOf(kind)
   const name = st?.name ?? "session"
+  const agentName = st?.agent ?? agent
   const url = request.url
   const method = request.method
   const status = response.status
   const statusText = response.statusText
   const ok = response.ok
-  const common = { _id: seq, _purpose: purpose, _url: url }
+  const common = { _id: seq, _purpose: purpose, _url: url, _agent: agentName }
   // Read the body in the background so streaming to the TUI is never blocked on us buffering the whole response.
   void clone
     .text()
@@ -694,6 +725,114 @@ function handleResponse(request: Request, response: Response, session: string, k
         ...errorInfo(err),
       })
     })
+}
+
+/**
+ * WebSocket transport. Some providers (e.g. OpenAI-style `/responses` over a socket, as used by
+ * AcademicCloud/GWDG) do NOT send the main agent turn over HTTP — only short auxiliary calls like
+ * title generation go through `http.request`. The primary prompt is a single `response.create` frame
+ * on the socket (`ws.send`), and the answer streams back as many `response.*` frames (`ws.receive`),
+ * exactly the OpenAI `/responses` SSE shape that `openaiResponses()` already consolidates.
+ *
+ * Without these hooks the real prompts are never traced, which is why the previous HTTP-only plugin
+ * showed nothing for the agent loop. We log each outgoing frame as a `request` row and, once the
+ * matching `response.completed` arrives, the consolidated answer as a `response` row.
+ */
+
+/** Accumulates inbound `ws.receive` frames per session until the response completes. */
+const wsResponses = new Map<string, { frames: Array<{ data: unknown }>; seq: number; name: string; agent: string; purpose: string }>()
+
+/**
+ * True if a WebSocket frame marks the end of a streamed response, across providers:
+ * - OpenAI `/responses`:   `response.completed` / `response.failed`
+ * - OpenAI chat-completions: a chunk whose choice carries a `finish_reason`
+ * - Anthropic messages:    `message_stop`
+ * Unknown providers simply never flush on a terminal frame and fall back to the idle flush.
+ */
+function isWsResponseEnd(data: Record<string, unknown>): boolean {
+  const type = typeof data.type === "string" ? data.type : undefined
+  if (type === "response.completed" || type === "response.failed") return true
+  if (type === "message_stop") return true
+  if (data.object === "chat.completion.chunk" && Array.isArray(data.choices)) {
+    return data.choices.some((c) => isRecord(c) && c.finish_reason != null)
+  }
+  return false
+}
+
+/**
+ * Consolidates buffered WebSocket frames into one response object, choosing the consolidator by the
+ * frames' shape rather than assuming OpenAI. Mirrors the detection in `responseAsJson` so every
+ * provider that streams a known SSE dialect over the socket is reconstructed correctly.
+ */
+function consolidateWsFrames(frames: Array<{ data: unknown }>): Record<string, unknown> {
+  const first = frames.find((f) => isRecord(f.data))?.data
+  const types = new Set(frames.map((f) => (isRecord(f.data) && typeof f.data.type === "string" ? f.data.type : "")))
+  const anyType = (...names: string[]): boolean => names.some((n) => types.has(n))
+  // Anthropic messages API
+  if (anyType("message_start", "content_block_start", "content_block_delta", "message_stop")) {
+    return anthropic(frames)
+  }
+  // OpenAI chat-completions
+  if ((isRecord(first) && first.object === "chat.completion.chunk") ||
+      frames.some((f) => isRecord(f.data) && f.data.object === "chat.completion.chunk")) {
+    return openaiChat(frames)
+  }
+  // OpenAI /responses (default; also matches `response.*` typed frames)
+  return openaiResponses(frames)
+}
+
+/** Handles an outgoing WebSocket frame carrying the agent's prompt. */
+function handleWsSend(session: string, agent: string, kind: string, frame: string): void {
+  const raw = parseBody(frame)
+  // Only frames that carry a prompt payload start a turn; ignore control/keepalive frames. We accept any
+  // provider shape: OpenAI `response.create` (input), chat-completions (messages), or a prompt field.
+  const isPrompt =
+    raw.type === "response.create" ||
+    Array.isArray(raw.input) ||
+    Array.isArray(raw.messages) ||
+    typeof raw.prompt === "string"
+  if (!isPrompt) return
+  const title = extractPromptFromRequestBody(raw)
+  const purpose = purposeOf(kind)
+  const seq = nextSeq(session)
+  const name = deriveName(title, session)
+  noteAgent(session, agent, name, purpose)
+  const common = { _id: seq, _purpose: purpose, _url: "ws:send", _agent: agent }
+  const requestKey = `${session}\nWS\nsend\nrequest\n${purpose}`
+  const requestRow = FULL_MODE ? raw : delta(prevs.get(requestKey), raw as object)[0]
+  prevs.set(requestKey, raw as object)
+  // Prepare the response accumulator for the frames that will stream back for this turn.
+  wsResponses.set(session, { frames: [], seq, name, agent, purpose })
+  writeNoThrow(session, name, {
+    ...(requestRow as Record<string, unknown>),
+    ...common,
+    _kind: "request",
+    _ts: now(),
+  })
+}
+
+/** Handles an inbound WebSocket frame; buffers streaming deltas and flushes when the response ends. */
+function handleWsReceive(session: string, agent: string, kind: string, frame: string): void {
+  const data = parseBody(frame)
+  const st = wsResponses.get(session)
+  // If we never saw the matching send (e.g. plugin loaded mid-stream), start a best-effort accumulator.
+  const acc = st ?? { frames: [], seq: nextSeq(session), name: "session", agent, purpose: purposeOf(kind) }
+  if (!st) wsResponses.set(session, acc)
+  acc.frames.push({ data })
+  if (!isWsResponseEnd(data)) return
+  // Flush: consolidate all buffered frames into one response object via the provider-appropriate logic.
+  wsResponses.delete(session)
+  const responseNext = consolidateWsFrames(acc.frames) as object
+  const common = { _id: acc.seq, _purpose: acc.purpose, _url: "ws:receive", _agent: acc.agent }
+  const responseKey = `${session}\nWS\nreceive\nresponse\n${acc.purpose}`
+  const responseRow = FULL_MODE ? responseNext : delta(prevs.get(responseKey), responseNext)[0]
+  prevs.set(responseKey, responseNext)
+  writeNoThrow(session, acc.name, {
+    ...(responseRow as Record<string, unknown>),
+    ...common,
+    _kind: "response",
+    _ts: now(),
+  })
 }
 
 /** Handles a final (non-retried) LLM request failure by logging an error row, mirroring the old fetch-reject path. */
@@ -728,10 +867,17 @@ const plugin: Plugin.Plugin = {
   async setup(ctx) {
     const registrations = await Promise.all([
       ctx.session.hook("http.request", (event) =>
-        handleRequest(event.request, String(event.sessionID), event.kind),
+        handleRequest(event.request, String(event.sessionID), event.kind, String(event.agent)),
       ),
       ctx.session.hook("http.response", (event) =>
-        handleResponse(event.request, event.response, String(event.sessionID), event.kind),
+        handleResponse(event.request, event.response, String(event.sessionID), event.kind, String(event.agent)),
+      ),
+      // WebSocket transport: some providers run the main agent loop over a socket, not HTTP (see handleWsSend).
+      ctx.session.hook("experimental.ws.send", (event) =>
+        handleWsSend(String(event.sessionID), String(event.agent), event.kind, event.frame),
+      ),
+      ctx.session.hook("experimental.ws.receive", (event) =>
+        handleWsReceive(String(event.sessionID), String(event.agent), event.kind, event.frame),
       ),
       ctx.session.hook("retry", (event) =>
         handleRetry(String(event.sessionID), event.decision.retry, event.error),
