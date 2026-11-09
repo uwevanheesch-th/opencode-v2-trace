@@ -3,8 +3,11 @@
 ## Goal
 
 This project helps explain which data a coding agent exchanges with the LLM and
-its tools. Its central feature is a live UML sequence diagram with lifelines for
-the **user, agent, LLM, and tools**. Requests can be explored down to individual
+its tools. The trace plugin works independently and writes self-contained HTML
+files that can be opened directly in a browser.
+
+The **optional Sequence Viewer** adds a live UML diagram with lifelines for the
+**user, agent, LLM, and tools**. Requests can be explored down to individual
 prompt components, including their recorded text and JSON.
 
 ## Data flow
@@ -17,13 +20,17 @@ index.ts
   │ HTML with an embedded renderer + JSON lines in the trailing comment
   ▼
 ~/opencode-trace/*.html
-  │ Incremental reads, polling every 750 ms
-  ▼
-sequence/server.mjs
-  │ Server-Sent Events (/events)
-  ▼
-sequence/app.js + sequence/model.mjs
-  └─ SVG sequence diagram and detail dialog with text/JSON views
+  ├─ Open directly in a browser
+  │    └─ Embedded viewer.js: expandable trace tree, no server required
+  │
+  └─ Optional live sequence view
+       │ Incremental reads, polling every 750 ms
+       ▼
+     sequence/server.mjs
+       │ Server-Sent Events (/events)
+       ▼
+     sequence/app.js + sequence/model.mjs
+       └─ SVG sequence diagram and detail dialog with text/JSON views
 ```
 
 ### Capture
@@ -33,23 +40,34 @@ sequence/app.js + sequence/model.mjs
 - Streaming responses are consolidated for OpenAI Responses, Chat Completions,
   and Anthropic Messages.
 - `prompt` and `execute.before` / `execute.after` capture user input and actual
-  tool executions; these hooks are registered optionally.
+  tool executions. Registration is attempted automatically, but failures for these
+  optional hooks are caught. No separate activation flag is needed.
 - Request/response rows contain `_id`, `_session`, `_agent`, `_purpose`, and `_ts`.
+  `_id` is a plugin-generated per-session sequence number, not a provider request ID.
   Tool rows include `_call_id`, `_tool`, and inputs/outputs, among other fields.
 - Changes in the agent names of consecutive primary requests are logged as
-  `agent-switch`. Auxiliary calls such as title generation do not trigger a switch.
+  `agent-switch`. These markers are derived from request metadata, not a dedicated
+  agent-selection event. Auxiliary calls such as title generation do not trigger a switch.
 
 ### Storage
 
 By default, the plugin writes full payloads to HTML traces. It reads `viewer.js`
 at runtime and embeds it in each file. This makes the renderer a plugin runtime
-dependency, even though the sequence view is the primary interface.
+dependency. Saved traces remain viewable without OpenCode or the Sequence Viewer
+running; reload an open HTML file to see subsequently appended rows.
+
+Full mode disables delta compression of the captured data. Streaming responses are
+still consolidated by format-specific handlers rather than stored as an exact
+reproduction of every transport frame.
 
 The file size limit defaults to 5 MB and is configurable through
-`OPENCODE_TRACE_MAX_MB`. The older delta mode is still available in the trace plugin,
-but does not provide the full payloads needed for the sequence view's prompt components.
+`OPENCODE_TRACE_MAX_MB`. It is a soft limit checked before each append; individual
+rows remain complete, but a complete final request/response pair is not guaranteed.
+See [ADR 0002](0002-per-file-size-limit.md) for the exact stopping behavior.
+The older delta mode is still available in the trace plugin, but does not provide
+the full payloads needed for the sequence view's prompt components.
 
-### Live view
+### Optional live view
 
 The local server follows the most recently updated HTML file and transmits its rows
 over SSE. On the initial connection, the file must have been updated within the last
@@ -61,7 +79,8 @@ row, it can infer the initial task from a request; this is explicitly marked as
 **inferred**. Content alone is not treated as proof that text originated in `AGENTS.md`.
 
 **Clear** sets a local display cutoff. Stored traces and the active SSE connection
-are unaffected.
+are unaffected. The cutoff lasts for the current page and source; reloading the
+page or switching sources resets it. Stopping the viewer does not stop recording.
 
 ## Tests and getting started
 

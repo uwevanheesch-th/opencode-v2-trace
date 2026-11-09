@@ -26,12 +26,13 @@ HTTP ones.
 - `ws.receive`: buffer the streamed frames per session and, when the stream ends, consolidate them
   into one `response` row.
 
-Consolidation is provider-agnostic. The frames' shape selects the consolidator rather than assuming
-OpenAI: Anthropic (`message_start` / `content_block_*` / `message_stop`), OpenAI chat-completions
+Consolidation supports three known streaming dialects. The frames' shape selects the
+consolidator rather than assuming OpenAI: Anthropic (`message_start` / `content_block_*` /
+`message_stop`), OpenAI chat-completions
 (`chat.completion.chunk`), or OpenAI `/responses` (default). Stream end is detected across dialects
 via `isWsResponseEnd` (`response.completed` / `response.failed`, `message_stop`, or a chunk carrying
-`finish_reason`). The outgoing-prompt detector likewise accepts any shape: `response.create`,
-`input`, `messages`, or a `prompt` field.
+`finish_reason`). The outgoing-prompt detector accepts `type: "response.create"`,
+an `input` or `messages` array, or a string `prompt` field; other frames do not start a turn.
 
 ## Alternatives considered
 
@@ -50,9 +51,10 @@ is the only way to trace the real prompts for these providers.
 Why the `experimental.ws.*` hooks rather than the `event` hook (against alternative 2). The event
 hook exposes OpenCode's internal message model, not the bytes sent to the model. Reconstructing the
 prompt from it would be a second, lossy representation that can drift from what actually went over the
-wire, and it would duplicate state that the frames already carry. The `ws.send` frame is the prompt as
-sent; the `ws.receive` frames are the answer as received. This matches the project's existing approach
-of tracing the real payloads, and it reuses the frames' own identifiers and ordering.
+wire, and it would duplicate state that the frames already carry. The outgoing frame contains
+the prompt payload; incoming frames provide the data used to build the response. The plugin
+assigns its own per-session `_id` to the request/response pair. Provider item IDs may be
+used within response consolidation, but are not used to route concurrent WebSocket calls.
 
 Why provider-agnostic consolidation (against alternative 4). The plugin must work regardless of the
 selected model, not only OpenAI. The three streaming dialects already have consolidators in the code
@@ -63,19 +65,28 @@ feature to one provider.
 Why not alternative 1 (HTTP-only). It leaves WebSocket providers with no trace of the agent loop,
 which is the whole point of the tool.
 
-Why `experimental.*` is acceptable. These hooks are marked experimental in the SDK, so the risk is
-that they change. That risk is contained: the HTTP path still works independently, failures in tracing
-are swallowed and never crash OpenCode, and the feature degrades to "no WebSocket rows" rather than
-breaking.
+Why `experimental.*` is used. These hooks expose the transport that must be captured,
+but their experimental status is a compatibility constraint. HTTP and WebSocket handlers
+are separate, and trace file I/O failures are caught. However, both transport hook sets
+are registered in the same required `Promise.all()` during setup: an unavailable
+WebSocket hook can reject plugin setup. Graceful fallback is not guaranteed here.
 
 ## Consequences
 
 WebSocket providers now produce `request` and consolidated `response` rows for the primary agent loop,
 with the same agent attribution, delta/full modes, and size cap as HTTP. If `ws.send` was missed (e.g.
-the plugin loaded mid-stream), `ws.receive` still flushes a best-effort response under a fresh id.
+the plugin loaded mid-stream), `ws.receive` can still flush a best-effort response under a fresh id
+when a recognized terminal frame arrives.
 
-Verified against two providers and two streaming dialects: OpenAI `/responses` (frames typed
-`response.*`) and the chat-completions dialect (`chat.completion.chunk`, reconstructed via the
+The implementation keeps one response accumulator per session. Overlapping WebSocket calls
+within the same session are not independently correlated; a new prompt replaces the previous
+accumulator. There is no idle-timeout or teardown flush for an unfinished response. Unknown
+dialects are not guaranteed to consolidate or produce a terminal response row.
+
+At the time of this decision, verification was reported against two providers and two
+streaming dialects: OpenAI `/responses` (frames typed `response.*`) and the chat-completions
+dialect (`chat.completion.chunk`, reconstructed via the
 `choices` path). In both cases the shape-based selection chose the correct consolidator and the
-answer text was reconstructed. The Anthropic path shares the same mechanism but has not yet been
-exercised against real Anthropic frames.
+answer text was reconstructed. The Anthropic path shared the same mechanism but had not been
+exercised against real Anthropic frames. This is a historical verification note, not a claim
+that the current sequence test suite covers live provider transports.

@@ -10,8 +10,10 @@ to its transmitted prompt components.
 
 ## Decision
 
-The sequence view reads the bundled plugin's HTML traces directly. User and tool
-hooks add `user`, `tool-call`, and `tool-result` rows to these files. Model
+The sequence view is an **optional** interface that reads the plugin's HTML traces directly.
+The plugin continues to record without this server running, and each trace can be opened
+independently in a browser using its embedded viewer. User and tool hooks add
+`user`, `tool-call`, and `tool-result` rows to these files. Model
 communication, tool execution, and user tasks therefore share a single recording.
 
 ### Server
@@ -34,8 +36,12 @@ communication, tool execution, and user tasks therefore share a single recording
 - The detail dialog offers text and JSON views, plus copying.
 - The source name and available session ID are visible. The view does not
   automatically load demo data and has no replay or file selection controls.
+- Attaching to a recent trace sends its existing complete rows before subsequent
+  additions, so a live view can include the current session's earlier events.
 - **Clear** hides all rows received so far. New rows continue to appear;
-  retransmitted old rows are deduplicated using their line numbers.
+  retransmitted old rows from the same source are deduplicated using their line numbers.
+  This display cutoff is local to the current page and source. A page reload or source
+  change resets it; the saved file is never modified.
 
 ## Rationale
 
@@ -58,4 +64,6 @@ test exercises a real HTTP/SSE server against temporary trace files.
   individual texts in files or skills is not invented.
 - When several sessions are writing concurrently, the live source may switch.
 - The plugin file size limit and the viewer read limit are separate constraints;
-  both must be considered for long teaching sessions.
+  both must be considered for long teaching sessions. The plugin limit is soft
+  ([ADR 0002](0002-per-file-size-limit.md)), so allow room for overshoot below the
+  viewer's 64 MB read threshold.

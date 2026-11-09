@@ -3,6 +3,12 @@
 - Status: Accepted
 - Date: 2026-09-30
 
+## Scope
+
+This decision describes `viewer.js`, the renderer embedded in each standalone HTML
+trace. It does not require the optional Sequence Viewer, whose prompt-component
+dialog is described in [ADR 0006](0006-sequence-live-viewer.md).
+
 ## Problem
 
 In full mode each request contains the complete, repeated context. Shown as a flat list of
@@ -49,7 +55,10 @@ extraction covers both forms (top-level field and in-messages).
 
 ## Consequences
 
-The viewer shows three clearly named sections per request; the History section carries a note
-that it is resent in full on every turn. The sectioning uses `deltaField`, so it also works in
-delta mode with renamed keys. Additional or unknown top-level fields remain accessible through
-the `raw` child node.
+The viewer shows the sections present in each request; missing sections are omitted.
+Its History section carries a teaching note about repeated context. This label is not
+proof that the provider transmitted an entire uncompacted conversation.
+
+The sectioning uses `deltaField`, so it can also display delta-mode fields with renamed
+keys. Unchanged placeholders remain placeholders; missing content is not reconstructed.
+Additional or unknown top-level fields remain accessible through the `raw` child node.

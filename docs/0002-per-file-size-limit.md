@@ -5,9 +5,10 @@
 
 ## Problem
 
-In full mode (ADR 0001) each trace file grows quadratically, because every turn contains the
-entire prior context. In long sessions the HTML files can become large (tens of megabytes or
-more), which slows the browser viewer that renders all rows into the DOM. Without an upper
+In full mode ([ADR 0001](0001-full-trace-mode-default.md)), trace files can grow quadratically
+when each turn resends a steadily growing conversation history. In long sessions the HTML
+files can become large (tens of megabytes or more), which slows the browser viewer that
+renders all rows into the DOM. Without an upper
 bound, an accidentally long session can produce unusably large files.
 
 ## Decision
@@ -15,14 +16,28 @@ bound, an accidentally long session can produce unusably large files.
 Introduce an `OPENCODE_TRACE_MAX_MB` environment variable.
 
 - Default is 5 MB.
-- A numeric value sets the limit in MB (decimal values allowed).
-- `-1` disables the limit.
-- An invalid value falls back to 5 MB, so a typo does not silently enable unbounded logging.
+- A non-negative numeric value sets the limit (decimal values allowed). The implementation
+  uses 1,048,576 bytes per unit, conventionally labeled MB in the configuration.
+- `-1` disables the limit; the current implementation treats any finite negative value this way.
+- An unset, blank, non-numeric, or non-finite value falls back to 5 MB.
 
-When the limit is reached, the current row is still written in full (the last turn stays
-intact), a `_kind:"limit"` notice row is appended, and logging stops for that session. The
-viewer renders this notice as a banner at the bottom of the file. The size check reads the
-real on-disk file size before appending, so the file can exceed the limit by at most one row.
+This is a **soft limit**, not a strict maximum file size. `writeNoThrow()` checks the
+existing on-disk size, including the HTML preamble and embedded viewer, **before**
+appending the next row:
+
+1. If the file is below the limit, the row is written in full, even if it crosses the limit.
+2. On the next append attempt, if the file is already at or above the limit, that row is
+   also written in full. A `_kind:"limit"` notice is appended and the session is marked capped.
+3. Later rows for that session are skipped by this plugin instance.
+
+The file can therefore contain both the row that crosses the limit and one further row,
+plus the notice. If no subsequent append occurs, there is no limit notice yet. If the
+preamble already exceeds the limit (including a limit of `0`), the first row is followed
+by the notice. Complete JSON rows are preserved; a complete final turn or matching
+request/response pair is **not** guaranteed.
+
+The embedded HTML viewer displays the notice at the end of the trace. The optional
+Sequence Viewer represents it as a limit event.
 
 ## Alternatives considered
 
@@ -36,7 +51,8 @@ For the behavior at the limit:
 
 Why a limit as the default. The full-mode default makes large files likely. A default limit
 protects against a slow or unloadable viewer without requiring the user to configure anything.
-5 MB covers typical demo sessions completely and loads smoothly in any browser.
+5 MB provides a conservative default for short demonstrations; usable session length
+depends on prompt sizes and the amount of tool output.
 
 Why configurable with `-1` for unbounded. Some users deliberately want to capture complete
 long sessions. A single numeric value plus `-1` covers both ends without adding more options.
@@ -44,11 +60,10 @@ long sessions. A single numeric value plus `-1` covers both ends without adding 
 Why fall back to the default on an invalid value rather than unbounded. A typo should not
 remove the safety net. Falling back to 5 MB is the conservative choice.
 
-Why alternative 2 (write the row, then stop and notice). A hard cut-off (alternative 1) can
-leave half a turn and look as if the session ended, when only logging stopped. Alternative 2
-keeps the file internally consistent (last turn complete) and uses the notice to make clear
-why the log ends and how to raise the limit. Because the check happens before appending, the
-file exceeds the limit by at most one row, which is acceptable.
+Why alternative 2 (write the row, then stop and notice). Writing complete rows keeps the
+JSONL data parseable. The notice explains why logging stopped and how to raise the limit.
+This favors row integrity over a strict byte ceiling; it does not wait for a whole turn
+to finish, and the pre-append check allows the overshoot described above.
 
 Why the notice only at the bottom. The notice appears where logging actually ends, at the end
 of the file. A top notice was considered and rejected: the viewer builds its content
@@ -59,11 +74,15 @@ Why not alternative 3 (rotate). Spreading one session across multiple files is m
 more confusing for the teaching use case. One file per session keeps the mapping clear.
 
 Why check the real file size. The check measures the actual on-disk size (including the HTML
-preamble and embedded viewer, about 11 KB of fixed overhead), not just the sum of the JSONL
+preamble and embedded viewer, whose size varies with the renderer), not just the sum of the JSONL
 bytes. This keeps the limit honest relative to the file size the user sees.
 
 ## Consequences
 
-Very long full-mode sessions are truncated at 5 MB by default; users who want more set
-`OPENCODE_TRACE_MAX_MB` higher or to `-1`. The capped state is tracked per session, so no
-further rows are written after the notice.
+The default stopping threshold is 5 MB; users who want more set `OPENCODE_TRACE_MAX_MB`
+higher or to `-1`. The capped state is held in memory per session, so no further rows
+are written after the notice during that plugin instance's lifetime. It is not a
+persistent cap across process restarts.
+
+The optional Sequence Viewer has its own 64 MB read limit. Disabling the plugin's
+limit does not disable the viewer's limit.
