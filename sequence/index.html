@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCode Sequence Trace · Live</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="identity"><div class="mark">↔</div><div><h1>Sequence Trace</h1><p>OpenCode · Agent ↔ LLM</p></div></div>
+    <div class="header-actions"><div class="live-state" id="status"><span class="status-dot"></span><span id="status-text">Verbinde…</span></div><button type="button" id="clear" class="clear-button" title="Alle bisher sichtbaren Ereignisse ausblenden. Die Live-Verbindung bleibt bestehen."><span aria-hidden="true">⌫</span> Clear</button></div>
+  </header>
+  <div class="sessionbar"><div><span class="session-label">LIVE-QUELLE</span> <strong id="source">Warte auf OpenCode</strong><span id="session" class="session-id"></span></div><span class="counter" id="count">0 Ereignisse</span></div>
+  <main>
+    <div class="section-heading"><div><h2>Kommunikationsablauf</h2><p>Klicke auf einen Request-Pfeil, um den tatsächlichen Prompt zu untersuchen.</p></div><span class="legend"><i class="legend-request"></i> Request <i class="legend-response"></i> Response <i class="legend-tool"></i> Tool</span></div>
+    <div class="diagram-card">
+      <div class="diagram-scroller" id="diagram-scroll">
+        <div class="empty-state" id="empty"><div class="empty-icon">⇄</div><h3 id="empty-title">Warte auf Live-Ereignisse</h3><p id="empty-message">Sobald das lokale OpenCode-Plugin einen LLM-Request schreibt, erscheint hier ein Pfeil.</p><details><summary>Keine Pfeile? Einrichtung prüfen</summary><p>OpenCode muss die lokale Plugin-Version aus diesem Projekt laden. Dann eine neue Aufgabe in OpenCode starten. Der Viewer selbst startet OpenCode nicht.</p><code>npm run sequence</code><p>Die Verbindung beobachtet die HTML-Traces unter <code>~/opencode-trace/</code>.</p></details></div>
+        <svg id="sequence" xmlns="http://www.w3.org/2000/svg" aria-label="UML-Sequenzdiagramm mit Benutzer, Agent, LLM und Tools" role="img" hidden></svg>
+      </div>
+    </div>
+    <p class="footnote" id="footnote">Nur Live-Ansicht · Keine Demo-Daten · Clear löscht keine Dateien</p>
+  </main>
+  <div id="modal" class="modal" hidden>
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal-header"><div><span class="eyebrow" id="modal-overline">Request</span><h2 id="modal-title">Prompt-Zusammensetzung</h2><p id="modal-subtitle"></p></div><button id="close" class="icon-button" aria-label="Schließen">×</button></header>
+      <div id="modal-info" class="modal-info"></div>
+      <div class="inspector">
+        <section class="block-area"><div class="inspector-heading"><h3>Bausteine dieses Requests</h3><span id="block-count"></span></div><div id="blocks" class="blocks"></div></section>
+        <section class="text-area"><div class="inspector-heading"><div><h3 id="block-title">Originaltext</h3><p id="block-description"></p></div><div class="mini-actions"><button id="view-text" class="mini-button active">Text</button><button id="view-json" class="mini-button">JSON</button><button id="copy" class="mini-button">Kopieren</button></div></div><pre class="original" id="block-text" tabindex="0"></pre></section>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

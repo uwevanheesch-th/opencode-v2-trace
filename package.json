@@ -1,7 +1,7 @@
 {
   "name": "opencode-v2-trace",
   "version": "0.2.0",
-  "description": "OpenCode v2 plugin that saves raw json LLM request+responses as jsonl in ~/opencode-trace, with built-in HTML interactive viewer",
+  "description": "OpenCode v2 transport tracing with a live UML sequence viewer for prompts, responses and tool executions",
   "license": "MIT",
   "type": "module",
   "exports": "./index.ts",
@@ -9,6 +9,9 @@
   "files": [
     "index.ts",
     "viewer.js",
+    "sequence/",
+    "example.html",
+    "docs/",
     "README.md",
     "LICENSE"
   ],
@@ -31,7 +34,10 @@
   },
   "scripts": {
     "lint": "eslint index.ts",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "test": "npm run test:sequence",
+    "sequence": "node sequence/server.mjs",
+    "test:sequence": "node --test sequence/*.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.24.0",

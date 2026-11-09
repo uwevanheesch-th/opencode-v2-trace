@@ -1,9 +1,41 @@
-# opencode-trace
+# OpenCode Sequence Trace
 
-This is a plugin designed to capture the raw json requests sent to the LLM, and the raw responses back (after streaming-delta consolidation). It saves them into ~/opencode-trace
+This project captures OpenCode v2 LLM traffic and tool executions and displays them
+in a live UML sequence diagram for teaching. Read `README.md` for usage and
+`docs/OVERVIEW.md` for the data flow.
 
-Targets **OpenCode v2** (v2.0.x+). It registers OpenCode's `session.hook("http.request" | "http.response", …)` hooks (see `@opencode/plugin`, imported for types only), so no `globalThis.fetch` patching is needed. The default export is a `{ id, setup }` plugin object — the shape `Plugin.define()` returns. v1 plugins do not run under v2.
-- End users install it from Git at a pinned tag (this fork is not published to npm): `opencode plugin add "git+https://github.com/uwevanheesch-th/opencode-v2-trace.git#v1.0"`, which adds it to the global `opencode.json` (v2 renamed `plugin` → `plugins`). See the README for details.
-- For development: `npm install` once (this also installs the `@opencode/plugin` types used by the typecheck). Point OpenCode at your checkout with `"plugins": ["/path/to/opencode-trace"]` — a **directory**, not `index.ts`; OpenCode resolves the package entry from `package.json`. Then each time you edit, `npm run typecheck` and `npm run lint` and then exercise it: `opencode run --auto "why is the sky blue?"` (it uses your already-configured OpenCode auth). Alternatively, drop a one-line `export { default } from "/abs/path/to/opencode-trace/index.ts"` file into a project's `.opencode/plugin/` to load your checkout without any install step.
-- For iterating on the viewer, you can copy `viewer.js` into your ~/opencode-trace directory, or copy examples into this directory, and they'll preferentially pick up `viewer.js` over their embedded viewer code.
-- To release a new version: bump `version` in `package.json`, commit, then create and push a new Git tag (e.g. `git tag v1.1 && git push origin v1.1`). Announce the tag; users switch by removing the old tag entry and adding the new one (see the README "Updates" section). This fork is installed from Git, not published to npm.
+## Structure
+
+- `index.ts`: OpenCode v2 plugin (`{ id, setup }`), using session HTTP/WebSocket hooks
+  and optional prompt/tool hooks. `@opencode/plugin` is imported for types only.
+- `viewer.js`: runtime dependency of the plugin, embedded in every HTML trace.
+- `sequence/`: dependency-free Node server, browser UI, model helpers and tests.
+- `example.html`: existing HTML trace used by the sequence model tests.
+- `docs/`: architecture decisions for the trace plugin and sequence viewer.
+
+The plugin writes to `~/opencode-trace/`. The sequence server reads those HTML files
+directly and streams rows over SSE. Keep the full-payload default and preserve original
+request/response data. Label inferred information explicitly; do not invent provenance
+such as `AGENTS.md` or skill origins. Clear only resets the browser display.
+
+## Development
+
+- Node.js 22+. `npm run sequence` starts the UI at `http://127.0.0.1:4177`, with no
+  installation or build step. `SEQUENCE_PORT` and `OPENCODE_TRACE_DIR` configure the server.
+- Run `npm install` once for development dependencies, then `npm run typecheck`,
+  `npm run lint` and `npm test` after changes. Typecheck/lint cover the TypeScript plugin;
+  the tests cover the sequence model and HTTP/SSE integration.
+- Load the checkout through `plugins` in OpenCode's config, using the absolute
+  **directory** path, not `index.ts`. Use only one registration of this plugin.
+- After plugin changes, restart OpenCode with the local plugin loaded and exercise
+  a new task, e.g. `opencode run --auto "why is the sky blue?"`. For UI changes, also
+  check request details, tool events and Clear in the live view.
+
+## Distribution
+
+This fork is distributed from Git, not published to npm. Keep the package's `files`
+list consistent with the plugin runtime and the sequence viewer. Existing release
+tags may predate sequence/tool support. The installation guides target the planned
+`V3` tag (uppercase); it must be pushed before those installation commands work.
+Releases use a version bump and a new Git tag;
+do not commit, tag or push unless requested.

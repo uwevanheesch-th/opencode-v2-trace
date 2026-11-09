@@ -164,7 +164,7 @@ function writeNoThrow(id: string, name: string, row: Record<string, unknown>): v
     // If we're already at/over the limit, still write this row (so the last turn stays intact), then
     // append a one-time limit notice and stop logging this session.
     const atLimit = MAX_BYTES !== Infinity && existsSync(file) && statSync(file).size >= MAX_BYTES
-    appendFileSync(file, `${JSON.stringify(row).replace(/-->/g, "--\\u003e")}\n`)
+    appendFileSync(file, `${JSON.stringify({ ...row, _session: id }).replace(/-->/g, "--\\u003e")}\n`)
     if (atLimit) {
       capped.add(id)
       const mb = MAX_BYTES / (1024 * 1024)
@@ -883,8 +883,47 @@ const plugin: Plugin.Plugin = {
         handleRetry(String(event.sessionID), event.decision.retry, event.error),
       ),
     ])
+    // Sequence Trace: user messages and real tool executions. These are ordinary rows in
+    // the same full transport trace consumed by the live sequence viewer.
+    // All optional hooks degrade gracefully on older OpenCode versions.
+    const sequenceRegistrations: Array<{ dispose: () => Promise<void> | void }> = []
+    try {
+      sequenceRegistrations.push(await ctx.session.hook("prompt", (event) => {
+        try {
+          const prompt = event.prompt
+          const text = typeof prompt.text === "string" ? prompt.text : JSON.stringify(prompt.text ?? prompt)
+          const session = String(event.sessionID)
+          writeNoThrow(session, deriveName(text, session), {
+            _kind: "user", _ts: now(), _text: text, _message_id: event.messageID,
+          })
+        } catch { /* tracing never affects OpenCode */ }
+      }))
+    } catch { /* optional prompt hook unavailable */ }
+    try {
+      sequenceRegistrations.push(await ctx.tool.hook("execute.before", (event) => {
+        try {
+          const session = String(event.sessionID)
+          writeNoThrow(session, "session", {
+            _kind: "tool-call", _ts: now(), _agent: event.agent,
+            _call_id: event.id, _tool: event.tool, _message_id: event.messageID,
+            _input: event.input,
+          })
+        } catch { /* tracing never affects OpenCode */ }
+      }))
+      sequenceRegistrations.push(await ctx.tool.hook("execute.after", (event) => {
+        try {
+          const session = String(event.sessionID)
+          writeNoThrow(session, "session", {
+            _kind: "tool-result", _ts: now(), _agent: event.agent,
+            _call_id: event.id, _tool: event.tool, _message_id: event.messageID,
+            _status: event.status,
+            ...(event.status === "error" ? { _error: event.error } : { _result: event.result }),
+          })
+        } catch { /* tracing never affects OpenCode */ }
+      }))
+    } catch { /* optional tool hooks unavailable */ }
     return async () => {
-      await Promise.all(registrations.map((registration) => registration.dispose()))
+      await Promise.all([...registrations, ...sequenceRegistrations].map((registration) => registration.dispose()))
     }
   },
 }

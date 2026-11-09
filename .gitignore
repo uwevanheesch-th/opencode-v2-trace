@@ -4,3 +4,8 @@ npm-debug.log*
 
 # JetBrains IDE
 .idea/
+
+# Local runtime traces and generated build/package output
+opencode-trace/
+dist/
+*.tgz

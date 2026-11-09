@@ -13,7 +13,7 @@ students to see the anatomy of an LLM request and which parts are repeated on ev
 ## Decision
 
 Add a `requestSections()` function in the viewer that splits each request into labeled,
-collapsible sections: System-Prompt, Tools, and History (Verlauf). The split is purely
+collapsible sections: System Prompt, Tools, and History. The split is purely
 structural, derived from a single request with no comparison to previous requests. The system
 prompt is read from the top-level `instructions` / `system` field; if that is absent
 (chat-completions format), the leading `role:"system"` messages are extracted from the history
